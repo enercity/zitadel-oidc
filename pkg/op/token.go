@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/zitadel/oidc/pkg/crypto"
@@ -22,17 +23,47 @@ type TokenRequest interface {
 	GetScopes() []string
 }
 
-func CreateTokenResponse(ctx context.Context, request IDTokenRequest, client Client, creator TokenCreator, createAccessToken bool, code, refreshToken string) (*oidc.AccessTokenResponse, error) {
+type UserInfoCustomizer interface {
+	CustomizeUserInfo(ctx context.Context, userinfo oidc.UserInfoSetter, request AuthRequest) error
+}
+
+func CreateTokenResponse(
+	ctx context.Context,
+	request IDTokenRequest,
+	client Client,
+	creator TokenCreator,
+	createAccessToken bool,
+	code, refreshToken string,
+	userInfoCustomizers ...UserInfoCustomizer,
+) (*oidc.AccessTokenResponse, error) {
 	var accessToken, newRefreshToken string
 	var validity time.Duration
 	if createAccessToken {
 		var err error
-		accessToken, newRefreshToken, validity, err = CreateAccessToken(ctx, request, client.AccessTokenType(), creator, client, refreshToken)
+		accessToken, newRefreshToken, validity, err = CreateAccessToken(
+			ctx,
+			request,
+			client.AccessTokenType(),
+			creator,
+			client,
+			refreshToken,
+		)
 		if err != nil {
 			return nil, err
 		}
 	}
-	idToken, err := CreateIDToken(ctx, creator.Issuer(), request, client.IDTokenLifetime(), accessToken, code, creator.Storage(), creator.Signer(), client)
+	idToken, err := CreateIDToken(
+		ctx,
+		creator.Issuer(),
+		request,
+		client.IDTokenLifetime(),
+		accessToken,
+		code,
+		creator.Storage(),
+		creator.Signer(),
+		client,
+		userInfoCustomizers...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -120,14 +151,35 @@ type IDTokenRequest interface {
 	GetSubject() string
 }
 
-func CreateIDToken(ctx context.Context, issuer string, request IDTokenRequest, validity time.Duration, accessToken, code string, storage Storage, signer Signer, client Client) (string, error) {
+func CreateIDToken(
+	ctx context.Context,
+	issuer string,
+	request IDTokenRequest,
+	validity time.Duration,
+	accessToken, code string,
+	storage Storage,
+	signer Signer,
+	client Client,
+	userInfoCustomizers ...UserInfoCustomizer,
+) (string, error) {
 	exp := time.Now().UTC().Add(client.ClockSkew()).Add(validity)
 	var acr, nonce string
 	if authRequest, ok := request.(AuthRequest); ok {
 		acr = authRequest.GetACR()
 		nonce = authRequest.GetNonce()
 	}
-	claims := oidc.NewIDTokenClaims(issuer, request.GetSubject(), request.GetAudience(), exp, request.GetAuthTime(), nonce, acr, request.GetAMR(), request.GetClientID(), client.ClockSkew())
+	claims := oidc.NewIDTokenClaims(
+		issuer,
+		request.GetSubject(),
+		request.GetAudience(),
+		exp,
+		request.GetAuthTime(),
+		nonce,
+		acr,
+		request.GetAMR(),
+		request.GetClientID(),
+		client.ClockSkew(),
+	)
 	scopes := client.RestrictAdditionalIdTokenScopes()(request.GetScopes())
 	if accessToken != "" {
 		atHash, err := oidc.ClaimHash(accessToken, signer.SignatureAlgorithm())
@@ -146,6 +198,15 @@ func CreateIDToken(ctx context.Context, issuer string, request IDTokenRequest, v
 			return "", err
 		}
 		claims.SetUserinfo(userInfo)
+
+		if authRequest, ok := request.(AuthRequest); ok {
+			for _, customizer := range userInfoCustomizers {
+				err = customizer.CustomizeUserInfo(ctx, userInfo, authRequest)
+				if err != nil {
+					return "", fmt.Errorf("cannot customize userInfo: %w", err)
+				}
+			}
+		}
 	}
 	if code != "" {
 		codeHash, err := oidc.ClaimHash(code, signer.SignatureAlgorithm())

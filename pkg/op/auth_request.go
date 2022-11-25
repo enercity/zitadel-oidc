@@ -43,6 +43,7 @@ type Authorizer interface {
 	Crypto() Crypto
 	Issuer() string
 	RequestObjectSupported() bool
+	UserInfoCustomizers() []UserInfoCustomizer
 }
 
 // AuthorizeValidator is an extension of Authorizer interface
@@ -448,12 +449,27 @@ func AuthResponseCode(w http.ResponseWriter, r *http.Request, authReq AuthReques
 // AuthResponseToken creates the successful token(s) authentication response
 func AuthResponseToken(w http.ResponseWriter, r *http.Request, authReq AuthRequest, authorizer Authorizer, client Client) {
 	createAccessToken := authReq.GetResponseType() != oidc.ResponseTypeIDTokenOnly
-	resp, err := CreateTokenResponse(r.Context(), authReq, client, authorizer, createAccessToken, "", "")
+	resp, err := CreateTokenResponse(
+		r.Context(),
+		authReq,
+		client,
+		authorizer,
+		createAccessToken,
+		"",
+		"",
+		authorizer.UserInfoCustomizers()...,
+	)
 	if err != nil {
 		AuthRequestError(w, r, authReq, err, authorizer.Encoder())
 		return
 	}
-	callback, err := AuthResponseURL(authReq.GetRedirectURI(), authReq.GetResponseType(), authReq.GetResponseMode(), resp, authorizer.Encoder())
+	callback, err := AuthResponseURL(
+		authReq.GetRedirectURI(),
+		authReq.GetResponseType(),
+		authReq.GetResponseMode(),
+		resp,
+		authorizer.Encoder(),
+	)
 	if err != nil {
 		AuthRequestError(w, r, authReq, err, authorizer.Encoder())
 		return

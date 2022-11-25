@@ -146,3 +146,17 @@ func (mr *MockAuthorizerMockRecorder) Storage() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Storage", reflect.TypeOf((*MockAuthorizer)(nil).Storage))
 }
+
+// UserInfoCustomizers mocks base method.
+func (m *MockAuthorizer) UserInfoCustomizers() []op.UserInfoCustomizer {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserInfoCustomizers")
+	ret0, _ := ret[0].([]op.UserInfoCustomizer)
+	return ret0
+}
+
+// UserInfoCustomizers indicates an expected call of UserInfoCustomizers.
+func (mr *MockAuthorizerMockRecorder) UserInfoCustomizers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserInfoCustomizers", reflect.TypeOf((*MockAuthorizer)(nil).UserInfoCustomizers))
+}

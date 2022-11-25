@@ -51,6 +51,7 @@ type OpenIDProvider interface {
 	Signer() Signer
 	Probes() []ProbesFn
 	HttpHandler() http.Handler
+	UserInfoCustomizers() []UserInfoCustomizer
 }
 
 type HttpInterceptor func(http.Handler) http.Handler
@@ -117,17 +118,19 @@ type endpoints struct {
 
 // NewOpenIDProvider creates a provider. The provider provides (with HttpHandler())
 // a http.Router that handles a suite of endpoints (some paths can be overridden):
-//  /healthz
-//  /ready
-//  /.well-known/openid-configuration
-//  /oauth/token
-//  /oauth/introspect
-//  /callback
-//  /authorize
-//  /userinfo
-//  /revoke
-//  /end_session
-//  /keys
+//
+//	/healthz
+//	/ready
+//	/.well-known/openid-configuration
+//	/oauth/token
+//	/oauth/introspect
+//	/callback
+//	/authorize
+//	/userinfo
+//	/revoke
+//	/end_session
+//	/keys
+//
 // This does not include login. Login is handled with a redirect that includes the
 // request ID. The redirect for logins is specified per-client by Client.LoginURL().
 // Successful logins should mark the request as authorized and redirect back to to
@@ -190,7 +193,8 @@ type openidProvider struct {
 	interceptors            []HttpInterceptor
 	timer                   <-chan time.Time
 	accessTokenVerifierOpts []AccessTokenVerifierOpt
-	idTokenHintVerifierOpts     []IDTokenHintVerifierOpt
+	idTokenHintVerifierOpts []IDTokenHintVerifierOpt
+	userInfoCustomizers     []UserInfoCustomizer
 }
 
 func (o *openidProvider) Issuer() string {
@@ -317,6 +321,10 @@ func (o *openidProvider) AccessTokenVerifier() AccessTokenVerifier {
 		o.accessTokenVerifier = NewAccessTokenVerifier(o.Issuer(), o.openIDKeySet(), o.accessTokenVerifierOpts...)
 	}
 	return o.accessTokenVerifier
+}
+
+func (o *openidProvider) UserInfoCustomizers() []UserInfoCustomizer {
+	return o.userInfoCustomizers
 }
 
 func (o *openidProvider) openIDKeySet() oidc.KeySet {
@@ -473,6 +481,13 @@ func WithIDTokenHintVerifierOpts(opts ...IDTokenHintVerifierOpt) Option {
 	}
 }
 
+func WithUserInfoCustomizer(opts ...UserInfoCustomizer) Option {
+	return func(o *openidProvider) error {
+		o.userInfoCustomizers = opts
+		return nil
+	}
+}
+
 func buildInterceptor(interceptors ...HttpInterceptor) func(http.HandlerFunc) http.Handler {
 	return func(handlerFunc http.HandlerFunc) http.Handler {
 		handler := handlerFuncToHandler(handlerFunc)
@@ -484,7 +499,9 @@ func buildInterceptor(interceptors ...HttpInterceptor) func(http.HandlerFunc) ht
 }
 
 func handlerFuncToHandler(handlerFunc http.HandlerFunc) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlerFunc(w, r)
-	})
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			handlerFunc(w, r)
+		},
+	)
 }
